@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="See every project at a glance, where it stands, and what happened to it.">
+  <title>Project Monitor</title>
+
+  <!-- Typeface: Manrope (UI) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Follow the computer's light / dark setting (applied before first paint to avoid a flash) -->
+  <script>
+    (function () {
+      var mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+      var apply = function () { document.documentElement.setAttribute('data-theme', mq && mq.matches ? 'dark' : 'light'); };
+      apply();
+      try { localStorage.removeItem('pmd-theme'); } catch (e) { /* storage unavailable */ }
+      if (mq && mq.addEventListener) mq.addEventListener('change', apply);
+    })();
+  </script>
+</head>
+<body>
+
+  <!-- ============ Top bar ============ -->
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="3" y="7" width="8" height="18" rx="2"></rect>
+        <rect x="12" y="11" width="8" height="14" rx="2"></rect>
+        <rect x="21" y="15" width="8" height="10" rx="2"></rect>
+      </svg>
+      <div class="brand-text">
+        <h1 id="appTitle"></h1>
+        <p class="sync-line">
+          <span id="syncDot" class="sync-dot" aria-hidden="true"></span>
+          <span id="lastSynced">Loading your projects…</span>
+        </p>
+      </div>
+    </div>
+
+    <div class="topbar-actions">
+      <button id="activityBtn" class="btn btn-ghost" type="button" title="See the latest updates on all projects">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>
+        <span class="hide-sm">What’s new</span>
+        <span class="count-dot" id="activityCount" hidden></span>
+      </button>
+      <button id="addBtn" class="btn btn-primary" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        <span class="hide-xs">Add a project</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- Setup / error notices -->
+    <div id="notice" class="notice" role="status" hidden>
+      <div class="notice-body">
+        <strong id="noticeTitle"></strong>
+        <span id="noticeText"></span>
+      </div>
+      <button id="noticeAction" class="btn btn-sm btn-primary" type="button" hidden></button>
+    </div>
+
+    <!-- ============ At a glance ============ -->
+    <section class="overview" aria-label="At a glance">
+      <article class="stat stat-total">
+        <span class="stat-label">Projects</span>
+        <span class="stat-value" id="statTotal">–</span>
+        <span class="stat-note" id="statTotalNote">&nbsp;</span>
+      </article>
+
+      <article class="stat stat-progress">
+        <span class="stat-label">Overall progress</span>
+        <span class="stat-value" id="statAvg">–</span>
+        <span class="stat-meter" aria-hidden="true"><span id="statAvgBar"></span></span>
+        <span class="stat-note" id="statAvgNote">&nbsp;</span>
+      </article>
+
+      <section class="card pipeline-card" aria-labelledby="pipelineTitle">
+        <div class="pipeline-head">
+          <h2 id="pipelineTitle">Where projects are</h2>
+          <span class="muted-sm" id="pipelineHint">Each step shows how many projects have reached it</span>
+          <button id="clearStageBtn" class="link-btn" type="button" hidden>Show all steps</button>
+        </div>
+        <ol id="pipeline" class="pipeline"></ol>
+      </section>
+    </section>
+
+    <!-- ============ Projects ============ -->
+    <section class="card projects-card" aria-labelledby="tableTitle">
+      <div class="projects-head">
+        <div class="projects-title">
+          <h2 id="tableTitle">Your projects</h2>
+          <p class="muted-sm">Click any project to see its details and updates.</p>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="projects">
+          <thead>
+            <tr>
+              <th data-sort="name" class="col-name"><button type="button">Project</button></th>
+              <th data-sort="stage"><button type="button">Step</button></th>
+              <th data-sort="progress" class="col-progress"><button type="button">Progress</button></th>
+              <th data-sort="status"><button type="button">How it’s going</button></th>
+              <th data-sort="dueDate"><button type="button">Due date</button></th>
+              <th data-sort="activity" class="col-activity"><button type="button">Latest update</button></th>
+              <th class="col-open"><span class="sr-only">Open</span></th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+
+      <div id="emptyState" class="empty" hidden></div>
+      <div class="table-foot">
+        <span id="resultCount"></span>
+      </div>
+    </section>
+
+    <p class="page-foot">Everything is saved automatically, and changes from others appear here within a few seconds.</p>
+  </main>
+
+  <!-- ============ Project panel ============ -->
+  <dialog id="projectDrawer" class="drawer" aria-labelledby="drawerTitle">
+    <div class="drawer-inner">
+      <header class="drawer-head">
+        <div class="drawer-title-wrap">
+          <h2 id="drawerTitle"></h2>
+          <div id="drawerChips" class="chip-row"></div>
+          <span id="drawerId" class="muted-sm"></span>
+        </div>
+        <button type="button" class="icon-btn" data-close aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+
+      <div class="drawer-tabs" role="tablist" aria-label="Project sections">
+        <button class="drawer-tab is-active" role="tab" aria-selected="true" data-pane="overview" id="tabOverview" type="button">Details</button>
+        <button class="drawer-tab" role="tab" aria-selected="false" data-pane="history" id="tabHistory" type="button">Updates <span class="seg-count" id="historyCount">0</span></button>
+        <button class="drawer-tab" role="tab" aria-selected="false" data-pane="apis" id="tabApis" type="button">APIs <span class="seg-count" id="apiCount">0</span></button>
+      </div>
+
+      <div class="drawer-body">
+        <!-- Details -->
+        <section class="drawer-pane" id="paneOverview" role="tabpanel" aria-labelledby="tabOverview">
+          <button type="button" class="btn btn-primary give-update-btn" id="giveUpdateBtn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.8 7L4 20l1.1-4.6A8 8 0 1 1 21 12z"/></svg>
+            Give an update
+          </button>
+
+          <div class="progress-block">
+            <div class="progress-block-head">
+              <span id="drawerStepOf">Progress</span>
+              <strong id="drawerProgressNum"></strong>
+            </div>
+            <div class="progress-track progress-lg" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Progress" id="drawerProgressTrack">
+              <div class="progress-fill" id="drawerProgressFill"></div>
+            </div>
+            <ol class="mini-stages" id="drawerStages" aria-label="Steps"></ol>
+            <div class="stage-move" id="stageMove">
+              <button type="button" class="btn btn-sm next-stage-btn" id="nextStageBtn">Move to next step</button>
+              <form id="stageMoveForm" class="stage-move-form" hidden novalidate>
+                <label for="stageMoveReason" id="stageMoveTitle">Move to the next step</label>
+                <p class="muted-sm" id="stageMoveHint"></p>
+                <textarea id="stageMoveReason" rows="2" maxlength="500" placeholder="Anything to add? (optional) e.g. Client approved the design"></textarea>
+                <div class="stage-move-actions">
+                  <select id="stageMoveBy" class="people-select" aria-label="Who are you?"></select>
+                  <button type="button" class="btn btn-ghost btn-sm" id="stageMoveCancel">Cancel</button>
+                  <button type="submit" class="btn btn-primary btn-sm" id="stageMoveConfirm">Move</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <dl id="drawerDetails" class="facts"></dl>
+
+          <div class="latest" id="drawerLatest"></div>
+        </section>
+
+        <!-- Updates -->
+        <section class="drawer-pane" id="paneHistory" role="tabpanel" aria-labelledby="tabHistory" hidden>
+          <form id="noteForm" class="composer" novalidate>
+            <label for="noteText" class="composer-label">What happened?</label>
+            <div class="mention-wrap">
+              <textarea id="noteText" rows="3" maxlength="1000" placeholder="e.g. Client approved the design. Type @ to tag someone."
+                role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="mentionMenu"></textarea>
+              <ul class="mention-menu" id="mentionMenu" role="listbox" aria-label="Tag someone" hidden></ul>
+            </div>
+
+
+            <div class="composer-foot">
+              <label class="who">Who are you?
+                <select id="noteBy"></select>
+              </label>
+              <button type="submit" class="btn btn-primary" id="noteSubmit">Post update</button>
+            </div>
+          </form>
+
+          <div class="history-tools">
+            <div class="segmented segmented-sm" role="group" aria-label="Show">
+              <button class="segment is-active" type="button" data-log-filter="all">Everything</button>
+              <button class="segment" type="button" data-log-filter="notes">Messages</button>
+              <button class="segment" type="button" data-log-filter="changes">Changes</button>
+            </div>
+            <button type="button" class="link-btn" id="drawerRefreshLogs">Refresh</button>
+          </div>
+
+          <div id="drawerLogs" class="timeline" aria-live="polite"></div>
+        </section>
+
+        <!-- APIs -->
+        <section class="drawer-pane" id="paneApis" role="tabpanel" aria-labelledby="tabApis" hidden>
+          <div class="api-tiles" id="apiTiles"></div>
+          <div class="api-list" id="apiList"></div>
+          <button type="button" class="btn btn-ghost btn-sm api-add-btn" id="apiAddBtn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            Add API
+          </button>
+        </section>
+      </div>
+
+      <footer class="drawer-foot" id="drawerFoot">
+        <button type="button" class="btn btn-ghost btn-sm" id="drawerEditBtn">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>
+          Edit details
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm danger-text push-right" id="drawerDeleteBtn">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+          Delete
+        </button>
+      </footer>
+    </div>
+  </dialog>
+
+  <!-- ============ What's new (all projects) ============ -->
+  <dialog id="activityDrawer" class="drawer" aria-labelledby="activityTitle">
+    <div class="drawer-inner">
+      <header class="drawer-head">
+        <div class="drawer-title-wrap">
+          <h2 id="activityTitle">What’s new</h2>
+          <p class="muted-sm">The latest updates on all projects, newest first. Click a project name to open it.</p>
+        </div>
+        <button type="button" class="icon-btn" data-close aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+      <div class="drawer-body">
+        <div class="history-tools">
+          <div class="segmented segmented-sm" role="group" aria-label="Show">
+            <button class="segment is-active" type="button" data-activity-filter="all">Everything</button>
+            <button class="segment" type="button" data-activity-filter="notes">Messages</button>
+            <button class="segment" type="button" data-activity-filter="changes">Changes</button>
+          </div>
+          <button type="button" class="link-btn" id="activityRefresh">Refresh</button>
+        </div>
+        <div id="activityList" class="timeline" aria-live="polite"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ Add / edit a project ============ -->
+  <dialog id="projectModal" class="modal" aria-labelledby="modalTitle">
+    <form id="projectForm" novalidate>
+      <header class="modal-head">
+        <div>
+          <h2 id="modalTitle">Add a project</h2>
+          <p class="muted-sm">Fields marked <span class="req">*</span> are needed. <span id="fIdDisplay"></span></p>
+        </div>
+        <button type="button" class="icon-btn" data-close aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="field span-2">
+            <label for="fName">Project name <span class="req" aria-hidden="true">*</span></label>
+            <input id="fName" name="name" type="text" maxlength="120" required placeholder="e.g. New company website">
+            <small class="field-error" data-error-for="name"></small>
+          </div>
+          <div class="field">
+            <label for="fDeveloper">Developer</label>
+            <select id="fDeveloper" name="developer"></select>
+          </div>
+          <div class="field">
+            <label for="fManager">Who is in charge?</label>
+            <select id="fManager" name="manager"></select>
+          </div>
+          <div class="field">
+            <label for="fDue">When should it be finished? <span class="req" aria-hidden="true">*</span></label>
+            <input id="fDue" name="dueDate" type="date" required>
+            <small class="field-error" data-error-for="dueDate"></small>
+          </div>
+          <div class="field">
+            <label for="fStage">Which step is it at? <span class="req" aria-hidden="true">*</span></label>
+            <select id="fStage" name="stage" required></select>
+            <small class="field-error" data-error-for="stage"></small>
+          </div>
+        </div>
+
+        <details class="more-details" id="moreDetails">
+          <summary>More details <span class="muted-sm">(optional)</span></summary>
+          <div class="form-grid">
+            <div class="field">
+              <label for="fStatus">How is it going?</label>
+              <select id="fStatus" name="status"></select>
+            </div>
+            <div class="field">
+              <label for="fPriority">How important is it?</label>
+              <select id="fPriority" name="priority"></select>
+            </div>
+            <div class="field span-2">
+              <label for="fProgress">How much is done? <output id="fProgressOut" for="fProgress">0%</output></label>
+              <input id="fProgress" name="progress" type="range" min="0" max="100" step="5" value="0">
+              <small class="field-hint">Choosing the step “Completed” sets this to 100% automatically.</small>
+            </div>
+            <div class="field">
+              <label for="fStart">Start date</label>
+              <input id="fStart" name="startDate" type="date">
+              <small class="field-error" data-error-for="startDate"></small>
+            </div>
+            <div class="field">
+              <label for="fCompletion">Finished on</label>
+              <input id="fCompletion" name="completionDate" type="date">
+            </div>
+            <div class="field">
+              <label for="fBudget">Budget</label>
+              <input id="fBudget" name="budget" type="number" min="0" step="any" inputmode="decimal" placeholder="0">
+            </div>
+            <div class="field span-2">
+              <label for="fRemarks">Short note about the project</label>
+              <textarea id="fRemarks" name="remarks" rows="2" maxlength="1000" placeholder="e.g. Homepage and product pages in progress"></textarea>
+            </div>
+          </div>
+        </details>
+
+        <div class="form-section-log">
+          <div class="form-grid">
+            <div class="field span-2">
+              <label for="fReason" id="fReasonLabel">Why are you making this change?</label>
+              <textarea id="fReason" name="reason" rows="2" maxlength="500"></textarea>
+            </div>
+            <div class="field">
+              <label for="fBy">Who are you? <span class="req" aria-hidden="true">*</span></label>
+              <select id="fBy" name="by"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="modal-foot">
+        <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveBtn">Add project</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- ============ Delete confirmation ============ -->
+  <dialog id="confirmModal" class="modal modal-sm" aria-labelledby="confirmTitle">
+    <div class="modal-body">
+      <div class="confirm-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+      </div>
+      <h2 id="confirmTitle">Delete this project?</h2>
+      <p id="confirmText" class="confirm-text"></p>
+      <div class="field">
+        <label for="deleteReason">Why is it being deleted?</label>
+        <textarea id="deleteReason" rows="2" maxlength="500" placeholder="e.g. It was added twice by mistake"></textarea>
+      </div>
+      <div class="field">
+        <label for="deleteBy">Who are you?</label>
+        <select id="deleteBy" class="people-select"></select>
+      </div>
+    </div>
+    <footer class="modal-foot">
+      <button type="button" class="btn btn-ghost" data-close>No, keep it</button>
+      <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Yes, delete</button>
+    </footer>
+  </dialog>
+
+  <!-- ============ Add / edit one API of a project ============ -->
+  <dialog id="apiModal" class="modal modal-sm" aria-labelledby="apiModalTitle">
+    <form id="apiForm" novalidate>
+      <div class="modal-body">
+        <h2 id="apiModalTitle">Add an API</h2>
+        <p class="muted-sm" id="apiModalProject"></p>
+        <div class="field">
+          <label for="apiName">API name</label>
+          <input id="apiName" type="text" maxlength="80" list="apiNameList" placeholder="e.g. Razorpay payments" autocomplete="off">
+          <datalist id="apiNameList"></datalist>
+        </div>
+        <div class="field">
+          <span class="field-label" id="apiStatusLabel">Status</span>
+          <div class="api-choices" id="apiStatusChoices" role="radiogroup" aria-labelledby="apiStatusLabel"></div>
+        </div>
+        <div class="field">
+          <span class="field-label" id="apiReviewLabel">Review</span>
+          <div class="api-choices" id="apiReviewChoices" role="radiogroup" aria-labelledby="apiReviewLabel"></div>
+        </div>
+        <div class="field">
+          <label for="apiNote">Review note <span class="muted-sm">(optional)</span></label>
+          <textarea id="apiNote" rows="2" maxlength="1000" placeholder="e.g. Refund flow tested. Type @ to tag someone."></textarea>
+        </div>
+        <div class="api-row">
+          <div class="field">
+            <label for="apiDeveloper">Developer</label>
+            <select id="apiDeveloper"></select>
+          </div>
+          <div class="field">
+            <label for="apiEnvironment">Keys in use</label>
+            <select id="apiEnvironment">
+              <option value="">Not set yet</option>
+              <option value="Sandbox">Sandbox (test)</option>
+              <option value="Production">Production (live)</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="apiBy">Who are you?</label>
+          <select id="apiBy" class="people-select"></select>
+        </div>
+      </div>
+      <footer class="modal-foot">
+        <button type="button" class="btn btn-ghost btn-sm danger-text" id="apiRemoveBtn" hidden>Remove API</button>
+        <button type="button" class="btn btn-ghost push-right" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary" id="apiSaveBtn">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- ============ Admin (hidden: double-click the app name) ============ -->
+  <dialog id="adminModal" class="modal admin-modal" aria-labelledby="adminTitle">
+    <header class="modal-head admin-head">
+      <span class="admin-badge" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>
+      </span>
+      <div class="admin-head-text">
+        <h2 id="adminTitle">Admin settings</h2>
+        <p class="muted-sm">Changes here affect everyone who uses this dashboard.</p>
+      </div>
+      <button type="button" class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </header>
+
+    <div class="modal-body admin-body">
+      <!-- Clear data -->
+      <section class="admin-card admin-card-danger" aria-labelledby="clearCardTitle">
+        <div class="admin-card-head">
+          <span class="admin-icon admin-icon-danger" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+          </span>
+          <div>
+            <h3 id="clearCardTitle">Clear data</h3>
+            <p class="muted-sm">Remove all projects and/or all updates, for everyone.</p>
+          </div>
+        </div>
+        <button type="button" class="btn btn-danger btn-sm admin-card-action" id="openClearBtn">Clear data…</button>
+      </section>
+
+      <!-- Team names -->
+      <section class="admin-card admin-card-team" aria-labelledby="teamCardTitle">
+        <div class="admin-card-head">
+          <span class="admin-icon admin-icon-team" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></svg>
+          </span>
+          <div>
+            <h3 id="teamCardTitle">Team</h3>
+            <p class="muted-sm">Team names for every “Who are you?” list, the people who can be in charge, and the developers you can assign to projects.</p>
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm admin-card-action" id="openTeamBtn">Edit…</button>
+      </section>
+    </div>
+  </dialog>
+
+  <!-- ============ Team names: edit ============ -->
+  <dialog id="teamModal" class="modal modal-sm" aria-labelledby="teamTitle">
+    <div class="modal-body">
+      <div class="confirm-icon confirm-icon-team" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></svg>
+      </div>
+      <h2 id="teamTitle">Edit team</h2>
+      <p class="confirm-text">Click a name to rename it, remove it with ✕, or add a new one.</p>
+
+      <section class="names-section" aria-labelledby="teamNamesHeading">
+        <h3 class="names-heading" id="teamNamesHeading">Team names <span class="muted-sm">· “Who are you?” list</span></h3>
+        <ul class="team-list" data-list="team" aria-label="Team names"></ul>
+        <form class="team-add" data-add="team" novalidate>
+          <label class="sr-only" for="teamAddInput">New team name</label>
+          <input id="teamAddInput" type="text" maxlength="40" placeholder="Add a team name" autocomplete="off">
+          <button type="submit" class="btn btn-ghost btn-sm">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            Add
+          </button>
+        </form>
+      </section>
+
+      <section class="names-section" aria-labelledby="mgrNamesHeading">
+        <h3 class="names-heading" id="mgrNamesHeading">In charge <span class="muted-sm">· “Who is in charge?” list on projects</span></h3>
+        <ul class="team-list" data-list="managers" aria-label="People who can be in charge"></ul>
+        <form class="team-add" data-add="managers" novalidate>
+          <label class="sr-only" for="mgrAddInput">New person in charge</label>
+          <input id="mgrAddInput" type="text" maxlength="40" placeholder="Add a person in charge" autocomplete="off">
+          <button type="submit" class="btn btn-ghost btn-sm">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            Add
+          </button>
+        </form>
+      </section>
+
+      <section class="names-section" aria-labelledby="devNamesHeading">
+        <h3 class="names-heading" id="devNamesHeading">Developers <span class="muted-sm">· Developer list on projects</span></h3>
+        <ul class="team-list" data-list="developers" aria-label="Developers"></ul>
+        <form class="team-add" data-add="developers" novalidate>
+          <label class="sr-only" for="devAddInput">New developer</label>
+          <input id="devAddInput" type="text" maxlength="40" placeholder="Add a developer" autocomplete="off">
+          <button type="submit" class="btn btn-ghost btn-sm">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            Add
+          </button>
+        </form>
+      </section>
+
+      <p class="muted-sm team-status" id="teamStatus"></p>
+    </div>
+    <footer class="modal-foot">
+      <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+      <button type="button" class="btn btn-primary" id="teamSaveBtn" disabled>Save</button>
+    </footer>
+  </dialog>
+
+  <!-- ============ Clear data: choose what to remove ============ -->
+  <dialog id="clearModal" class="modal modal-sm" aria-labelledby="clearTitle">
+    <div class="modal-body">
+      <div class="confirm-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+      </div>
+      <h2 id="clearTitle">What do you want to clear?</h2>
+      <p class="confirm-text">Tick what to remove. It is deleted for everyone, and you can start again straight away.</p>
+      <div class="clear-options">
+        <label class="clear-option">
+          <input type="checkbox" id="clearProjects">
+          <span><strong id="clearProjectsName">Sheet1</strong><small>All projects (<span id="clearProjectsCount">0</span>)</small></span>
+        </label>
+        <label class="clear-option">
+          <input type="checkbox" id="clearLogs">
+          <span><strong>Logs</strong><small>All updates and history (<span id="clearLogsCount">0</span>)</small></span>
+        </label>
+      </div>
+    </div>
+    <footer class="modal-foot">
+      <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+      <button type="button" class="btn btn-danger" id="confirmClearBtn" disabled>Clear</button>
+    </footer>
+  </dialog>
+
+  <!-- ============ Delete a message: confirmation ============ -->
+  <dialog id="noteDeleteModal" class="modal modal-sm" aria-labelledby="noteDeleteTitle">
+    <div class="modal-body">
+      <div class="confirm-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+      </div>
+      <h2 id="noteDeleteTitle">Delete this message?</h2>
+      <p class="note-delete-preview" id="noteDeletePreview"></p>
+    </div>
+    <footer class="modal-foot">
+      <button type="button" class="btn btn-ghost" data-close>No, keep it</button>
+      <button type="button" class="btn btn-danger" id="noteDeleteConfirm">Yes, delete</button>
+    </footer>
+  </dialog>
+
+  <!-- ============ Busy overlay & toasts ============ -->
+  <div id="busyOverlay" class="busy" hidden>
+    <div class="busy-card" role="alert" aria-live="assertive">
+      <span class="spinner" aria-hidden="true"></span>
+      <span id="busyText">Saving…</span>
+    </div>
+  </div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="config.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
